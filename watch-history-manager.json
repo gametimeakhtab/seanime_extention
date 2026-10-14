@@ -18,9 +18,7 @@
     "permissions": {
       "scopes": [
         "anilist",
-        "storage",
-        "playback",
-        "anime"
+        "storage"
       ]
     }
   }
