@@ -31,12 +31,26 @@ function init() {
             return minutes + ":" + sSec;
         }
 
+        // Helper: robust ISO date parser supporting Go timestamps with sub-second / nanosecond precision
+        function parseIsoDate(str) {
+            if (!str) return 0;
+            try {
+                var normalized = String(str).replace(/\.(\d{3})\d+([+-Z]|$)/, ".$1$2");
+                var t = new Date(normalized).getTime();
+                if (!isNaN(t)) return t;
+                t = new Date(str).getTime();
+                if (!isNaN(t)) return t;
+            } catch (_) {}
+            return 0;
+        }
+
         // Helper: format relative timestamp (e.g. "5m ago", "2h ago", "1d ago")
         function formatRelativeTime(dateStr) {
             if (!dateStr) return "";
-            var date = new Date(dateStr);
-            var now = new Date();
-            var diffMs = now.getTime() - date.getTime();
+            var timeMs = parseIsoDate(dateStr);
+            if (!timeMs) return "";
+            var now = new Date().getTime();
+            var diffMs = now - timeMs;
             if (isNaN(diffMs) || diffMs < 0) return "Just now";
             var diffMin = Math.floor(diffMs / 60000);
             if (diffMin < 1) return "Just now";
@@ -45,13 +59,21 @@ function init() {
             if (diffHours < 24) return diffHours + "h ago";
             var diffDays = Math.floor(diffHours / 24);
             if (diffDays < 7) return diffDays + "d ago";
-            return date.toLocaleDateString();
+            return new Date(timeMs).toLocaleDateString();
         }
 
-        // Helper: lookup anime metadata from cached AniList collection
+        // Helper: lookup anime metadata from AniList collection or cache
         function getAnimeMetadata(mediaId) {
             try {
-                var collection = $store.get("latestAnimeCollection");
+                var collection = null;
+                if (typeof $anilist !== "undefined" && typeof $anilist.getAnimeCollection === "function") {
+                    try {
+                        collection = $anilist.getAnimeCollection(false);
+                    } catch (_) {}
+                }
+                if (!collection) {
+                    collection = $store.get("latestAnimeCollection");
+                }
                 if (collection && collection.lists) {
                     for (var i = 0; i < collection.lists.length; i++) {
                         var list = collection.lists[i];
@@ -184,6 +206,8 @@ function init() {
             try {
                 if (ctx.continuity && typeof ctx.continuity.getWatchHistory === "function") {
                     rawHistory = ctx.continuity.getWatchHistory() || {};
+                } else if (typeof $continuity !== "undefined" && typeof $continuity.getWatchHistory === "function") {
+                    rawHistory = $continuity.getWatchHistory() || {};
                 }
             } catch (e) {
                 console.error("[Watch-History-Manager] Error fetching watch history:", e);
@@ -202,8 +226,8 @@ function init() {
 
             // 3. Sort strictly in order of watching (most recently updated/watched first)
             items.sort(function(a, b) {
-                var timeA = new Date(a.timeUpdated || a.timeAdded || 0).getTime();
-                var timeB = new Date(b.timeUpdated || b.timeAdded || 0).getTime();
+                var timeA = parseIsoDate(a.timeUpdated || a.timeAdded);
+                var timeB = parseIsoDate(b.timeUpdated || b.timeAdded);
                 return timeB - timeA;
             });
 
@@ -286,38 +310,52 @@ function init() {
                         }
                     }
 
+                    // Build left items (cover thumbnail + details)
+                    var infoItems = [];
+                    if (meta.cover) {
+                        infoItems.push(tray.img({
+                            src: meta.cover,
+                            alt: displayTitle,
+                            className: "w-9 h-12 object-cover rounded shadow flex-none"
+                        }));
+                    }
+                    infoItems.push(tray.stack({
+                        gap: 0,
+                        className: "flex-1 min-w-0",
+                        items: [
+                            tray.text(displayTitle, {
+                                className: "text-sm font-semibold text-white truncate"
+                            }),
+                            tray.flex({
+                                direction: "row",
+                                className: "items-center gap-2 mt-0.5",
+                                items: [
+                                    tray.text("EP " + epNum, {
+                                        className: "px-1.5 py-0.5 rounded text-[11px] font-semibold bg-brand-500/20 text-brand-400 border border-brand-500/30"
+                                    }),
+                                    tray.text(timeStr + " (" + percent + "%)", {
+                                        className: "text-xs text-gray-400"
+                                    })
+                                ]
+                            })
+                        ]
+                    }));
+
                     itemCards.push(
                         tray.div({
                             className: "p-3 rounded-xl bg-gray-900/60 border border-gray-800/90 hover:border-gray-700/80 transition-all space-y-2 mb-3 shadow-sm",
                             items: [
-                                // Top row: Title and relative time
+                                // Top row: Title, Cover & relative time
                                 tray.flex({
                                     direction: "row",
                                     className: "items-start justify-between gap-2",
                                     items: [
-                                        tray.stack({
-                                            gap: 0,
-                                            className: "flex-1 min-w-0",
-                                            items: [
-                                                tray.text(displayTitle, {
-                                                    className: "text-sm font-semibold text-white truncate"
-                                                }),
-                                                tray.flex({
-                                                    direction: "row",
-                                                    className: "items-center gap-2 mt-0.5",
-                                                    items: [
-                                                        tray.text("EP " + epNum, {
-                                                            className: "px-1.5 py-0.5 rounded text-[11px] font-semibold bg-brand-500/20 text-brand-400 border border-brand-500/30"
-                                                        }),
-                                                        tray.text(timeStr + " (" + percent + "%)", {
-                                                            className: "text-xs text-gray-400"
-                                                        })
-                                                    ]
-                                                })
-                                            ]
+                                        tray.flex({
+                                            direction: "row",
+                                            className: "items-center gap-3 min-w-0 flex-1",
+                                            items: infoItems
                                         }),
-                                        tray.text({
-                                            text: relativeTime,
+                                        tray.text(relativeTime, {
                                             className: "text-xs text-gray-400 flex-none"
                                         })
                                     ]
@@ -362,8 +400,14 @@ function init() {
                                             size: "xs",
                                             intent: "gray-subtle",
                                             onClick: ctx.eventHandler("history-open-anime-" + mId, function() {
-                                                ctx.screen.navigateTo("/entry", { id: String(mId) });
+                                                try {
                                                     tray.close();
+                                                    if (ctx.screen && typeof ctx.screen.navigateTo === "function") {
+                                                        ctx.screen.navigateTo("/entry", { id: String(mId) });
+                                                    }
+                                                } catch (e) {
+                                                    console.log("[Watch-History-Manager] Navigation error: " + e);
+                                                }
                                             })
                                         }),
 
@@ -374,7 +418,11 @@ function init() {
                                             intent: "alert-subtle",
                                             onClick: ctx.eventHandler("history-remove-" + mId, function() {
                                                 try {
-                                                    ctx.continuity.deleteWatchHistoryItem(mId);
+                                                    if (ctx.continuity && typeof ctx.continuity.deleteWatchHistoryItem === "function") {
+                                                        ctx.continuity.deleteWatchHistoryItem(mId);
+                                                    } else if (typeof $continuity !== "undefined" && typeof $continuity.deleteWatchHistoryItem === "function") {
+                                                        $continuity.deleteWatchHistoryItem(mId);
+                                                    }
                                                     ctx.toast.info("Removed from watch history.");
                                                     tray.update();
                                                 } catch (err) {
