@@ -13,6 +13,14 @@ function init() {
         e.next();
     });
 
+    // Cache manga collection whenever Seanime loads it to enrich manga actions with titles & chapters
+    $app.onGetMangaCollection(function(e) {
+        if (e.mangaCollection) {
+            $store.set("latestMangaCollection", $clone(e.mangaCollection));
+        }
+        e.next();
+    });
+
     $ui.register(function(ctx) {
         console.log("[Watch-History-Manager] Registering UI components and context menu actions");
 
@@ -31,22 +39,55 @@ function init() {
             return minutes + ":" + sSec;
         }
 
-        // Helper: robust ISO date parser supporting Go timestamps with sub-second / nanosecond precision
+        // Helper: robust ISO date parser supporting Go nanosecond timestamps and timezone offsets
         function parseIsoDate(str) {
             if (!str) return 0;
             try {
-                var normalized = String(str).replace(/\.(\d{3})\d+([+-Z]|$)/, ".$1$2");
-                var t = new Date(normalized).getTime();
-                if (!isNaN(t)) return t;
-                t = new Date(str).getTime();
-                if (!isNaN(t)) return t;
-            } catch (_) {}
-            return 0;
+                if (typeof str === "number") return str;
+                var s = String(str).trim();
+                var t = new Date(s).getTime();
+                if (!isNaN(t) && t > 0) return t;
+
+                // Normalize nanoseconds (.123456789 -> .123)
+                var clean = s.replace(/\.(\d{3})\d+([Z\+\-].*|$)/, function(_, ms, tz) {
+                    return "." + ms + (tz || "");
+                });
+                t = new Date(clean).getTime();
+                if (!isNaN(t) && t > 0) return t;
+
+                // Space separated format: YYYY-MM-DD HH:mm:ss
+                clean = clean.replace(" ", "T");
+                t = new Date(clean).getTime();
+                if (!isNaN(t) && t > 0) return t;
+
+                // Fallback: manual regex extraction
+                var parts = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+                if (parts) {
+                    return Date.UTC(
+                        parseInt(parts[1], 10),
+                        parseInt(parts[2], 10) - 1,
+                        parseInt(parts[3], 10),
+                        parseInt(parts[4], 10),
+                        parseInt(parts[5], 10),
+                        parseInt(parts[6], 10)
+                    );
+                }
+                return 0;
+            } catch (e) {
+                return 0;
+            }
         }
 
-        // Helper: format relative timestamp (e.g. "5m ago", "2h ago", "1d ago")
+        // Helper: returns the latest timestamp for a watch history item
+        function getItemTimestamp(item) {
+            if (!item) return 0;
+            var tUpdated = parseIsoDate(item.timeUpdated);
+            var tAdded = parseIsoDate(item.timeAdded);
+            return Math.max(tUpdated, tAdded);
+        }
+
+        // Helper: format relative time
         function formatRelativeTime(dateStr) {
-            if (!dateStr) return "";
             var timeMs = parseIsoDate(dateStr);
             if (!timeMs) return "";
             var now = new Date().getTime();
@@ -82,94 +123,153 @@ function init() {
                             var entry = list.entries[j];
                             if (entry && entry.media && entry.media.id === mediaId) {
                                 var m = entry.media;
-                                var rawTitle = (m.title && (m.title.userPreferred || m.title.romaji || m.title.english)) || "";
-                                var title = rawTitle ? String(rawTitle) : "";
-                                var rawCover = (m.coverImage && (m.coverImage.large || m.coverImage.medium)) || "";
-                                var cover = rawCover ? String(rawCover) : "";
-                                var totalEps = (m.episodes && !isNaN(m.episodes)) ? Number(m.episodes) : 0;
-                                return { title: title, cover: cover, totalEpisodes: totalEps };
+                                var title = String((m.title && (m.title.userPreferred || m.title.romaji || m.title.english)) || ("Anime #" + mediaId));
+                                var coverRaw = (m.coverImage && (m.coverImage.large || m.coverImage.medium || m.coverImage.extraLarge));
+                                var cover = coverRaw ? String(coverRaw) : "";
+                                var progress = entry.progress || 0;
+                                var episodes = m.episodes || 0;
+                                var status = entry.status || null;
+                                var repeat = entry.repeat || 0;
+                                return { title: title, cover: cover, progress: progress, episodes: episodes, totalEpisodes: episodes, status: status, repeat: repeat };
                             }
                         }
                     }
                 }
-                // Fallback: direct AniList anime query if not present in collection
                 if (typeof $anilist !== "undefined" && typeof $anilist.getAnime === "function") {
                     try {
                         var anime = $anilist.getAnime(mediaId);
                         if (anime) {
-                            var rawDirectTitle = (anime.title && (anime.title.userPreferred || anime.title.romaji || anime.title.english)) || "";
-                            var directTitle = rawDirectTitle ? String(rawDirectTitle) : "";
-                            var rawDirectCover = (anime.coverImage && (anime.coverImage.large || anime.coverImage.medium)) || "";
-                            var directCover = rawDirectCover ? String(rawDirectCover) : "";
-                            var directTotalEps = (anime.episodes && !isNaN(anime.episodes)) ? Number(anime.episodes) : 0;
-                            return { title: directTitle, cover: directCover, totalEpisodes: directTotalEps };
+                            var directTitle = (anime.title && (anime.title.userPreferred || anime.title.romaji || anime.title.english)) || ("Anime #" + mediaId);
+                            var directCover = (anime.coverImage && (anime.coverImage.large || anime.coverImage.medium || anime.coverImage.extraLarge)) || "";
+                            var directEpisodes = anime.episodes || 0;
+                            return { title: directTitle, cover: directCover, progress: 0, episodes: directEpisodes, totalEpisodes: directEpisodes, status: null, repeat: 0 };
                         }
                     } catch (_) {}
                 }
             } catch (_) {}
-            return { title: "", cover: "", totalEpisodes: 0 };
+            return { title: "Anime #" + mediaId, cover: "", progress: 0, episodes: 0, totalEpisodes: 0, status: null, repeat: 0 };
         }
 
-        // =========================================================================
-        // 1. RIGHT-CLICK CONTEXT MENU ACTIONS (Mark as Watched)
-        // =========================================================================
-
-        // --- Action A: Episode Card Right-Click Menu: "Mark Episode as Watched" ---
-        var markEpisodeAction = ctx.action.newEpisodeCardContextMenuItem({
-            label: "Mark Episode as Watched"
-        });
-        markEpisodeAction.mount();
-        markEpisodeAction.onClick(function(event) {
+        // Helper: lookup manga metadata from AniList collection or cache
+        function getMangaMetadata(mediaId) {
             try {
-                var ep = event && event.episode;
-                if (!ep) {
-                    ctx.toast.error("Episode data not found");
-                    return;
+                var collection = null;
+                if (typeof $anilist !== "undefined" && typeof $anilist.getMangaCollection === "function") {
+                    try {
+                        collection = $anilist.getMangaCollection(false);
+                    } catch (_) {}
                 }
-                var mediaId = (ep.baseAnime && ep.baseAnime.id) || (ep.localFile && ep.localFile.mediaId) || ep.mediaId;
-                var epNum = ep.progressNumber || ep.episodeNumber;
+                if (!collection) {
+                    collection = $store.get("latestMangaCollection");
+                }
+                var lists = (collection && collection.MediaListCollection && collection.MediaListCollection.lists) || (collection && collection.lists) || [];
+                for (var i = 0; i < lists.length; i++) {
+                    var list = lists[i];
+                    if (list && list.entries) {
+                        for (var j = 0; j < list.entries.length; j++) {
+                            var entry = list.entries[j];
+                            if (entry && entry.media && entry.media.id === mediaId) {
+                                var m = entry.media;
+                                var title = String((m.title && (m.title.userPreferred || m.title.romaji || m.title.english)) || ("Manga #" + mediaId));
+                                var coverRaw = (m.coverImage && (m.coverImage.large || m.coverImage.medium || m.coverImage.extraLarge));
+                                var cover = coverRaw ? String(coverRaw) : "";
+                                var progress = entry.progress || 0;
+                                var chapters = m.chapters || 0;
+                                var status = entry.status || null;
+                                var repeat = entry.repeat || 0;
+                                return { title: title, cover: cover, progress: progress, chapters: chapters, status: status, repeat: repeat };
+                            }
+                        }
+                    }
+                }
+                if (typeof $anilist !== "undefined" && typeof $anilist.getManga === "function") {
+                    try {
+                        var manga = $anilist.getManga(mediaId);
+                        if (manga) {
+                            var directMangaTitle = (manga.title && (manga.title.userPreferred || manga.title.romaji || manga.title.english)) || ("Manga #" + mediaId);
+                            var directMangaCover = (manga.coverImage && (manga.coverImage.large || manga.coverImage.medium || manga.coverImage.extraLarge)) || "";
+                            var directChapters = manga.chapters || 0;
+                            return { title: directMangaTitle, cover: directMangaCover, progress: 0, chapters: directChapters, status: null, repeat: 0 };
+                        }
+                    } catch (_) {}
+                }
+            } catch (_) {}
+            return { title: "Manga #" + mediaId, cover: "", progress: 0, chapters: 0, status: null, repeat: 0 };
+        }
 
-                if (!mediaId) {
-                    ctx.toast.error("Could not determine anime ID for this episode");
-                    return;
-                }
-                if (!epNum && epNum !== 0) {
-                    ctx.toast.error("Could not determine episode number");
-                    return;
-                }
+        // Helper: determine if an anime history item has already been marked watched on AniList
+        function isItemAlreadyWatched(item, meta) {
+            if (!item || !meta) return false;
+            var epNum = item.episodeNumber || 1;
+            var isRewatching = (meta.status === "REPEATING");
+            var isCompleted = (meta.status === "COMPLETED");
 
-                $anilist.updateEntryProgress(mediaId, epNum);
-                ctx.toast.success("Marked Episode " + epNum + " as watched on AniList!");
-            } catch (err) {
-                var msg = (err && err.message) ? err.message : String(err);
-                ctx.toast.error("Failed to mark episode as watched: " + msg);
+            if (isRewatching) {
+                return !!(meta.progress && meta.progress >= epNum);
             }
-        });
+            if (isCompleted) {
+                return true;
+            }
+            if (meta.progress && meta.progress >= epNum) {
+                return true;
+            }
+            if (item.duration > 0 && (item.currentTime / item.duration) >= 0.95 && meta.progress >= epNum) {
+                return true;
+            }
+            return false;
+        }
 
-        // --- Action B: Media Card Right-Click Menu: "Mark Next Episode as Watched" ---
-        var markNextEpisodeAction = ctx.action.newMediaCardContextMenuItem({
-            label: "Mark Next Episode as Watched",
-            for: "anime"
+        // ==========================================
+        // ANIME ACTIONS
+        // ==========================================
+
+        // --- Action A1: Anime Page 3-dot Dropdown: "Mark Season as Watched" ---
+        var animeDropdownMarkSeasonWatched = ctx.action.newAnimePageDropdownItem({
+            label: "Mark Season as Watched"
         });
-        markNextEpisodeAction.mount();
-        markNextEpisodeAction.onClick(function(event) {
+        animeDropdownMarkSeasonWatched.mount();
+        animeDropdownMarkSeasonWatched.onClick(function(event) {
             try {
                 var media = event && event.media;
                 if (!media || !media.id) {
-                    ctx.toast.error("Media data not found");
+                    ctx.toast.error("Anime data not found");
                     return;
                 }
-                var currentProgress = media.progress || 0;
-                var nextEp = currentProgress + 1;
-                var totalEp = media.episodes || null;
+                var meta = getAnimeMetadata(media.id);
+                var targetEpisodes = media.episodes || meta.episodes || (meta.progress ? meta.progress + 1 : 1);
+                $anilist.updateEntryProgress(media.id, targetEpisodes, targetEpisodes);
+                $anilist.refreshAnimeCollection();
+                try {
+                    if (ctx.continuity && typeof ctx.continuity.deleteWatchHistoryItem === "function") {
+                        ctx.continuity.deleteWatchHistoryItem(media.id);
+                    }
+                } catch (e) {}
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Anime #" + media.id);
+                ctx.toast.success("Marked entire season of " + title + " as watched (" + targetEpisodes + " eps)!");
+            } catch (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                ctx.toast.error("Failed to mark season as watched: " + msg);
+            }
+        });
 
-                if (totalEp && nextEp > totalEp) {
-                    ctx.toast.info("All " + totalEp + " episodes are already marked as watched!");
+        // --- Action A2: Anime Page 3-dot Dropdown: "Mark Next Episode as Watched" ---
+        var animeDropdownMarkNextEpWatched = ctx.action.newAnimePageDropdownItem({
+            label: "Mark Next Episode as Watched"
+        });
+        animeDropdownMarkNextEpWatched.mount();
+        animeDropdownMarkNextEpWatched.onClick(function(event) {
+            try {
+                var media = event && event.media;
+                if (!media || !media.id) {
+                    ctx.toast.error("Anime data not found");
                     return;
                 }
-
+                var meta = getAnimeMetadata(media.id);
+                var nextEp = (meta.progress || 0) + 1;
+                var totalEp = media.episodes || meta.episodes || undefined;
                 $anilist.updateEntryProgress(media.id, nextEp, totalEp);
-                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || ("Anime #" + media.id);
+                $anilist.refreshAnimeCollection();
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Anime #" + media.id);
                 ctx.toast.success("Updated " + title + ": Episode " + nextEp + " watched!");
             } catch (err) {
                 var msg = (err && err.message) ? err.message : String(err);
@@ -177,102 +277,356 @@ function init() {
             }
         });
 
-        // --- Action C: Media Card Right-Click Menu: "Mark Anime as Completed" ---
-        var markCompletedAction = ctx.action.newMediaCardContextMenuItem({
-            label: "Mark Anime as Completed",
+        // --- Action A3: Anime Page Header Button: "Mark Ep Watched" ---
+        var animePageButton = ctx.action.newAnimePageButton({
+            label: "Mark Ep Watched",
+            intent: "primary-subtle",
+            tooltipText: "Mark next episode as watched on AniList"
+        });
+        animePageButton.mount();
+        animePageButton.onClick(function(event) {
+            try {
+                var media = event && event.media;
+                if (!media || !media.id) {
+                    ctx.toast.error("Anime data not found");
+                    return;
+                }
+                var meta = getAnimeMetadata(media.id);
+                var nextEp = (meta.progress || 0) + 1;
+                var totalEp = media.episodes || meta.episodes || undefined;
+                $anilist.updateEntryProgress(media.id, nextEp, totalEp);
+                $anilist.refreshAnimeCollection();
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Anime #" + media.id);
+                ctx.toast.success("Updated " + title + ": Episode " + nextEp + " watched!");
+            } catch (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                ctx.toast.error("Failed to update progress: " + msg);
+            }
+        });
+
+        // --- Action A4: Episode Card Right-Click Menu: "Mark Episode as Watched" ---
+        var episodeCardMarkWatched = ctx.action.newEpisodeCardContextMenuItem({
+            label: "Mark Episode as Watched"
+        });
+        episodeCardMarkWatched.mount();
+        episodeCardMarkWatched.onClick(function(event) {
+            try {
+                var ep = event && event.episode;
+                if (!ep) {
+                    ctx.toast.error("Episode data not found");
+                    return;
+                }
+                var epNum = ep.progressNumber || ep.episodeNumber || 1;
+                var mediaId = (ep.localFile && ep.localFile.mediaId) || null;
+                if (!mediaId) {
+                    ctx.toast.error("Anime media ID could not be identified");
+                    return;
+                }
+                $anilist.updateEntryProgress(mediaId, epNum, undefined);
+                $anilist.refreshAnimeCollection();
+                ctx.toast.success("Marked Episode " + epNum + " as watched!");
+            } catch (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                ctx.toast.error("Failed to mark episode as watched: " + msg);
+            }
+        });
+
+        // --- Action A5: Media Card Right-Click Menu: "Mark Next Episode as Watched" ---
+        var mediaCardMarkNextEp = ctx.action.newMediaCardContextMenuItem({
+            label: "Mark Next Episode as Watched",
             for: "anime"
         });
-        markCompletedAction.mount();
-        markCompletedAction.onClick(function(event) {
+        mediaCardMarkNextEp.mount();
+        mediaCardMarkNextEp.onClick(function(event) {
             try {
                 var media = event && event.media;
                 if (!media || !media.id) {
                     ctx.toast.error("Media data not found");
                     return;
                 }
-                var targetEpisodes = media.episodes || (media.progress ? media.progress + 1 : 1);
-                $anilist.updateEntryProgress(media.id, targetEpisodes, targetEpisodes);
-                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || ("Anime #" + media.id);
-                ctx.toast.success("Marked " + title + " as Completed (" + targetEpisodes + " eps)!");
+                var meta = getAnimeMetadata(media.id);
+                var nextEp = (meta.progress || 0) + 1;
+                var totalEp = media.episodes || meta.episodes || undefined;
+                $anilist.updateEntryProgress(media.id, nextEp, totalEp);
+                $anilist.refreshAnimeCollection();
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Anime #" + media.id);
+                ctx.toast.success("Updated " + title + ": Episode " + nextEp + " watched!");
             } catch (err) {
                 var msg = (err && err.message) ? err.message : String(err);
-                ctx.toast.error("Failed to mark as completed: " + msg);
+                ctx.toast.error("Failed to update progress: " + msg);
             }
         });
 
-        // =========================================================================
-        // 2. WATCHING HISTORY IN CHRONOLOGICAL ORDER (Tray Drawer)
-        // =========================================================================
+        // --- Action A6: Media Card Right-Click Menu: "Mark Season as Watched" ---
+        var mediaCardMarkCompleted = ctx.action.newMediaCardContextMenuItem({
+            label: "Mark Season as Watched",
+            for: "anime"
+        });
+        mediaCardMarkCompleted.mount();
+        mediaCardMarkCompleted.onClick(function(event) {
+            try {
+                var media = event && event.media;
+                if (!media || !media.id) {
+                    ctx.toast.error("Media data not found");
+                    return;
+                }
+                var meta = getAnimeMetadata(media.id);
+                var targetEpisodes = media.episodes || meta.episodes || (meta.progress ? meta.progress + 1 : 1);
+                $anilist.updateEntryProgress(media.id, targetEpisodes, targetEpisodes);
+                $anilist.refreshAnimeCollection();
+                try {
+                    if (ctx.continuity && typeof ctx.continuity.deleteWatchHistoryItem === "function") {
+                        ctx.continuity.deleteWatchHistoryItem(media.id);
+                    }
+                } catch (e) {}
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Anime #" + media.id);
+                ctx.toast.success("Marked entire season of " + title + " as watched (" + targetEpisodes + " eps)!");
+            } catch (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                ctx.toast.error("Failed to mark season as watched: " + msg);
+            }
+        });
 
+        // ==========================================
+        // MANGA ACTIONS
+        // ==========================================
+
+        // --- Action M1: Manga Page 3-dot Dropdown: "Mark Manga / Season as Completed" ---
+        var mangaDropdownMarkMangaRead = ctx.action.newMangaPageDropdownItem({
+            label: "Mark Manga / Season as Completed"
+        });
+        mangaDropdownMarkMangaRead.mount();
+        mangaDropdownMarkMangaRead.onClick(function(event) {
+            try {
+                var media = event && event.media;
+                if (!media || !media.id) {
+                    ctx.toast.error("Manga data not found");
+                    return;
+                }
+                var meta = getMangaMetadata(media.id);
+                var targetChapters = media.chapters || meta.chapters || (meta.progress ? meta.progress + 1 : 1);
+                $anilist.updateEntryProgress(media.id, targetChapters, targetChapters);
+                $anilist.refreshMangaCollection();
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Manga #" + media.id);
+                ctx.toast.success("Marked " + title + " as Completed (" + targetChapters + " chapters)!");
+            } catch (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                ctx.toast.error("Failed to mark manga as completed: " + msg);
+            }
+        });
+
+        // --- Action M2: Manga Page 3-dot Dropdown: "Mark Next Chapter as Read" ---
+        var mangaDropdownMarkNextChapterRead = ctx.action.newMangaPageDropdownItem({
+            label: "Mark Next Chapter as Read"
+        });
+        mangaDropdownMarkNextChapterRead.mount();
+        mangaDropdownMarkNextChapterRead.onClick(function(event) {
+            try {
+                var media = event && event.media;
+                if (!media || !media.id) {
+                    ctx.toast.error("Manga data not found");
+                    return;
+                }
+                var meta = getMangaMetadata(media.id);
+                var nextChap = (meta.progress || 0) + 1;
+                var totalChap = media.chapters || meta.chapters || undefined;
+                $anilist.updateEntryProgress(media.id, nextChap, totalChap);
+                $anilist.refreshMangaCollection();
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Manga #" + media.id);
+                ctx.toast.success("Updated " + title + ": Chapter " + nextChap + " read!");
+            } catch (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                ctx.toast.error("Failed to update manga progress: " + msg);
+            }
+        });
+
+        // --- Action M3: Manga Page Button: "Mark Chapter Read" ---
+        var mangaPageButton = ctx.action.newMangaPageButton({
+            label: "Mark Chapter Read",
+            intent: "primary-subtle",
+            tooltipText: "Quickly mark next chapter as read on AniList"
+        });
+        mangaPageButton.mount();
+        mangaPageButton.onClick(function(event) {
+            try {
+                var media = event && event.media;
+                if (!media || !media.id) {
+                    ctx.toast.error("Manga data not found");
+                    return;
+                }
+                var meta = getMangaMetadata(media.id);
+                var nextChap = (meta.progress || 0) + 1;
+                var totalChap = media.chapters || meta.chapters || undefined;
+                $anilist.updateEntryProgress(media.id, nextChap, totalChap);
+                $anilist.refreshMangaCollection();
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Manga #" + media.id);
+                ctx.toast.success("Read Chapter " + nextChap + " of " + title);
+            } catch (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                ctx.toast.error("Failed to update manga progress: " + msg);
+            }
+        });
+
+        // --- Action M4: Media Card Right-Click Menu: "Mark Next Chapter as Read" ---
+        var mediaCardMarkNextChapter = ctx.action.newMediaCardContextMenuItem({
+            label: "Mark Next Chapter as Read",
+            for: "manga"
+        });
+        mediaCardMarkNextChapter.mount();
+        mediaCardMarkNextChapter.onClick(function(event) {
+            try {
+                var media = event && event.media;
+                if (!media || !media.id) {
+                    ctx.toast.error("Manga data not found");
+                    return;
+                }
+                var meta = getMangaMetadata(media.id);
+                var nextChap = (meta.progress || 0) + 1;
+                var totalChap = media.chapters || meta.chapters || undefined;
+                $anilist.updateEntryProgress(media.id, nextChap, totalChap);
+                $anilist.refreshMangaCollection();
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Manga #" + media.id);
+                ctx.toast.success("Updated " + title + ": Chapter " + nextChap + " read!");
+            } catch (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                ctx.toast.error("Failed to update manga progress: " + msg);
+            }
+        });
+
+        // --- Action M5: Media Card Right-Click Menu: "Mark Manga as Completed" ---
+        var mediaCardMarkMangaCompleted = ctx.action.newMediaCardContextMenuItem({
+            label: "Mark Manga as Completed",
+            for: "manga"
+        });
+        mediaCardMarkMangaCompleted.mount();
+        mediaCardMarkMangaCompleted.onClick(function(event) {
+            try {
+                var media = event && event.media;
+                if (!media || !media.id) {
+                    ctx.toast.error("Manga data not found");
+                    return;
+                }
+                var meta = getMangaMetadata(media.id);
+                var targetChapters = media.chapters || meta.chapters || (meta.progress ? meta.progress + 1 : 1);
+                $anilist.updateEntryProgress(media.id, targetChapters, targetChapters);
+                $anilist.refreshMangaCollection();
+                var title = (media.title && (media.title.userPreferred || media.title.romaji || media.title.english)) || meta.title || ("Manga #" + media.id);
+                ctx.toast.success("Marked " + title + " as Completed (" + targetChapters + " chapters)!");
+            } catch (err) {
+                var msg = (err && err.message) ? err.message : String(err);
+                ctx.toast.error("Failed to mark manga as completed: " + msg);
+            }
+        });
+
+        // ==========================================
+        // WATCH HISTORY TRAY DRAWER
+        // ==========================================
+        // WATCH HISTORY TRAY DRAWER
+        // ==========================================
         var tray = ctx.newTray({
-            tooltipText: "Watch History",
             iconUrl: "https://raw.githubusercontent.com/gametimeakhtab/seanime_extention/main/icon.png",
             withContent: true,
-            width: "440px"
+            width: "480px"
         });
 
-        // Whenever the drawer opens, refresh the tray
-        tray.onOpen(function() {
-            tray.update();
-        });
-
-        // Render the drawer contents
         tray.render(function() {
-            // 1. Fetch raw watch history from continuity manager
-            var rawHistory = {};
+            var rawHistory = null;
             try {
                 if (ctx.continuity && typeof ctx.continuity.getWatchHistory === "function") {
-                    rawHistory = ctx.continuity.getWatchHistory() || {};
-                } else if (typeof $continuity !== "undefined" && typeof $continuity.getWatchHistory === "function") {
-                    rawHistory = $continuity.getWatchHistory() || {};
+                    rawHistory = ctx.continuity.getWatchHistory();
                 }
-            } catch (e) {
-                console.error("[Watch-History-Manager] Error fetching watch history:", e);
+            } catch (err) {
+                console.log("[Watch-History-Manager] Continuity read error: " + err);
             }
 
-            // 2. Convert map to array
-            var items = [];
-            for (var key in rawHistory) {
-                if (Object.prototype.hasOwnProperty.call(rawHistory, key)) {
-                    var item = rawHistory[key];
-                    if (item && item.mediaId) {
-                        items.push(item);
-                    }
-                }
-            }
-
-            // 3. Sort strictly in order of watching (most recently updated/watched first)
-            items.sort(function(a, b) {
-                var timeA = parseIsoDate(a.timeUpdated || a.timeAdded);
-                var timeB = parseIsoDate(b.timeUpdated || b.timeAdded);
-                return timeB - timeA;
-            });
-
-            // If empty, display friendly state
-            if (items.length === 0) {
-                return tray.stack({
-                    gap: 4,
-                    className: "p-6 text-center space-y-4",
+            if (!rawHistory) {
+                tray.stack({
+                    gap: 3,
+                    className: "p-4 text-center items-center justify-center min-h-[200px]",
                     items: [
-                        tray.text("Watching History", {
-                            className: "text-lg font-bold text-white tracking-wide"
-                        }),
-                        tray.text("No watch history recorded yet.\nStart watching an episode and your chronological history will appear here in real time!", {
-                            className: "text-sm text-gray-400 whitespace-pre-line leading-relaxed"
-                        }),
-                        tray.button({
-                            label: "Refresh",
-                            size: "sm",
-                            intent: "primary",
-                            onClick: ctx.eventHandler("refresh-empty-history", function() {
-                                tray.update();
-                            })
+                        tray.text("No watch history found.", { className: "text-gray-400 text-sm font-medium" }),
+                        tray.text("Start playing an episode and it will automatically appear here with live progress.", {
+                            className: "text-gray-500 text-xs mt-1"
                         })
                     ]
                 });
+                return;
             }
 
-            // Build history card components
+            // Convert raw history record into list of valid items
+            var allItems = [];
+            var keys = Object.keys(rawHistory);
+            for (var k = 0; k < keys.length; k++) {
+                var it = rawHistory[keys[k]];
+                if (it && it.mediaId && (it.duration > 0 || it.currentTime > 0)) {
+                    allItems.push(it);
+                }
+            }
+
+            // Sort strictly in descending order of actual watch timestamp (Most recently watched first)
+            allItems.sort(function(a, b) {
+                var diff = getItemTimestamp(b) - getItemTimestamp(a);
+                if (diff !== 0) return diff;
+                var sA = a.timeUpdated || a.timeAdded || "";
+                var sB = b.timeUpdated || b.timeAdded || "";
+                return sB.localeCompare(sA);
+            });
+
+            // Read user preference for filtering watched items (default: hide already watched)
+            var hideWatchedPref = $storage.get("hide_watched");
+            var hideWatched = (hideWatchedPref !== false);
+
+            // Separate active (unwatched) vs already watched/completed items
+            var activeItems = [];
+            for (var i = 0; i < allItems.length; i++) {
+                var itm = allItems[i];
+                var metaData = getAnimeMetadata(itm.mediaId);
+                if (!isItemAlreadyWatched(itm, metaData)) {
+                    activeItems.push(itm);
+                }
+            }
+
+            var displayItems = hideWatched ? activeItems : allItems;
+
+            if (displayItems.length === 0) {
+                tray.stack({
+                    gap: 3,
+                    className: "p-4 text-center items-center justify-center min-h-[200px]",
+                    items: [
+                        tray.text(hideWatched && allItems.length > 0 ? "All recent watch history is marked as watched!" : "No watch history available.", {
+                            className: "text-gray-300 text-sm font-semibold"
+                        }),
+                        tray.text(hideWatched && allItems.length > 0 ? "You have finished or synced all current items on AniList." : "Playback progress will appear here automatically.", {
+                            className: "text-gray-500 text-xs mt-1"
+                        }),
+                        tray.flex({
+                            direction: "row",
+                            className: "mt-3 gap-2 justify-center",
+                            items: [
+                                allItems.length > 0 ? tray.button({
+                                    label: hideWatched ? "Show Watched Items (" + allItems.length + ")" : "Hide Watched Items",
+                                    size: "xs",
+                                    intent: "primary-subtle",
+                                    onClick: ctx.eventHandler("toggle-hide-watched-empty", function() {
+                                        $storage.set("hide_watched", !hideWatched);
+                                        tray.update();
+                                    })
+                                }) : null,
+                                tray.button({
+                                    label: "Refresh",
+                                    size: "xs",
+                                    intent: "gray-subtle",
+                                    onClick: ctx.eventHandler("refresh-empty-history", function() {
+                                        tray.update();
+                                    })
+                                })
+                            ].filter(Boolean)
+                        })
+                    ]
+                });
+                return;
+            }
+
             var itemCards = [];
 
             // Header summary bar
@@ -284,184 +638,189 @@ function init() {
                         tray.stack({
                             gap: 0,
                             items: [
-                                tray.text("Watching History (" + items.length + ")", {
+                                tray.text("Watch History (" + displayItems.length + ")", {
                                     className: "text-base font-bold text-white tracking-wide"
                                 }),
-                                tray.text("In chronological order (Latest watched first)", {
+                                tray.text(hideWatched ? "Active unwatched items (Latest watched first)" : "All watch history items (Latest watched first)", {
                                     className: "text-xs text-gray-400"
                                 })
                             ]
                         }),
-                        tray.button({
-                            label: "Refresh",
-                            size: "xs",
-                            intent: "gray-subtle",
-                            onClick: ctx.eventHandler("refresh-history-list", function() {
-                                tray.update();
-                            })
+                        tray.flex({
+                            direction: "row",
+                            className: "gap-2 items-center",
+                            items: [
+                                tray.button({
+                                    label: hideWatched ? "Active (" + activeItems.length + ")" : "All (" + allItems.length + ")",
+                                    size: "xs",
+                                    intent: hideWatched ? "primary-subtle" : "gray-subtle",
+                                    onClick: ctx.eventHandler("toggle-hide-watched-hdr", function() {
+                                        $storage.set("hide_watched", !hideWatched);
+                                        tray.update();
+                                    })
+                                }),
+                                tray.button({
+                                    label: "Refresh",
+                                    size: "xs",
+                                    intent: "gray-subtle",
+                                    onClick: ctx.eventHandler("refresh-history-list", function() {
+                                        tray.update();
+                                    })
+                                })
+                            ]
                         })
                     ]
                 })
             );
 
-            // Render each history item
-            for (var idx = 0; idx < items.length; idx++) {
+            // Render each history item card
+            for (var idx = 0; idx < displayItems.length; idx++) {
                 (function(historyItem) {
                     var mId = historyItem.mediaId;
                     var epNum = historyItem.episodeNumber || 1;
                     var currTime = historyItem.currentTime || 0;
                     var duration = historyItem.duration || 0;
-                    var timeStr = formatDuration(currTime) + " / " + formatDuration(duration);
-                    var percent = (duration > 0) ? Math.min(100, Math.round((currTime / duration) * 100)) : 0;
+                    var percent = duration > 0 ? Math.min(100, Math.round((currTime / duration) * 100)) : 0;
                     var relativeTime = formatRelativeTime(historyItem.timeUpdated || historyItem.timeAdded);
 
-                    // Metadata lookup for title
                     var meta = getAnimeMetadata(mId);
-                    var displayTitle = meta.title;
-                    if (!displayTitle) {
-                        if (historyItem.filepath) {
-                            var parts = historyItem.filepath.split(/[/\\]/);
-                            displayTitle = parts[parts.length - 1];
-                        } else {
-                            displayTitle = "Anime #" + mId;
-                        }
+                    var title = meta.title;
+                    var coverImage = meta.cover;
+                    var isCompleted = (meta.status === "COMPLETED");
+                    var isRewatching = (meta.status === "REPEATING");
+
+                    // Status badge text
+                    var statusBadge = null;
+                    if (isRewatching) {
+                        statusBadge = " [Rewatching]";
+                    } else if (isCompleted) {
+                        statusBadge = " [Completed]";
                     }
 
-                    // Cover thumbnail
-                    var coverItem = null;
-                    if (meta.cover) {
-                        coverItem = tray.div([], {
-                            style: {
-                                width: "44px",
-                                height: "62px",
-                                minWidth: "44px",
-                                backgroundImage: "url(" + meta.cover + ")",
-                                backgroundSize: "cover",
-                                backgroundPosition: "center",
-                                borderRadius: "6px",
-                                flexShrink: "0"
-                            }
-                        });
-                    }
+                    var cardComponents = [];
 
-                    // Title and relative timestamp row
-                    var titleRowItems = [
-                        tray.div([
-                            tray.text(String(displayTitle), {
-                                className: "text-sm font-semibold text-white truncate break-normal leading-tight"
+                    if (coverImage) {
+                        cardComponents.push(
+                            tray.img({
+                                src: String(coverImage),
+                                alt: String(title),
+                                className: "w-20 h-28 object-cover rounded-md flex-shrink-0 shadow-md border border-gray-800"
                             })
-                        ], {
-                            className: "min-w-0 flex-1 overflow-hidden"
-                        })
-                    ];
-                    if (relativeTime) {
-                        titleRowItems.push(tray.span(String(relativeTime), {
-                            className: "text-xs text-gray-400 whitespace-nowrap flex-none shrink-0"
-                        }));
+                        );
                     }
-                    var titleAndDateRow = tray.flex({
-                        direction: "row",
-                        className: "items-center justify-between gap-2 w-full",
-                        items: titleRowItems
-                    });
 
-                    // Episode badge and time info row
-                    var epAndProgressRow = tray.flex({
-                        direction: "row",
-                        gap: 2,
-                        className: "items-center mt-1 flex-wrap",
-                        items: [
-                            tray.badge(String("EP " + epNum), {
-                                intent: "primary",
-                                size: "sm"
-                            }),
-                            tray.span(String(timeStr + " (" + percent + "%)"), {
-                                className: "text-xs text-gray-400 whitespace-nowrap"
-                            })
-                        ]
-                    });
-
-                    // Details column (Title row + Episode badge row)
-                    var detailsCol = tray.stack({
-                        gap: 1,
-                        className: "min-w-0 flex-1 justify-center",
-                        items: [
-                            titleAndDateRow,
-                            epAndProgressRow
-                        ]
-                    });
-
-                    // Top row: [Cover, DetailsCol]
-                    var topRowItems = [];
-                    if (coverItem) {
-                        topRowItems.push(coverItem);
-                    }
-                    topRowItems.push(detailsCol);
-
-                    var topRow = tray.flex({
-                        direction: "row",
-                        gap: 3,
-                        className: "items-center w-full",
-                        items: topRowItems
-                    });
-
-                    itemCards.push(
-                        tray.div({
-                            className: "p-3 rounded-xl bg-gray-900/60 border border-gray-800/90 hover:border-gray-700/80 transition-all space-y-2.5 mb-3 shadow-sm",
+                    cardComponents.push(
+                        tray.stack({
+                            gap: 1,
+                            className: "flex-1 min-w-0 justify-between",
                             items: [
-                                topRow,
-
-                                // Progress bar
-                                tray.div({
-                                    className: "w-full bg-gray-800/90 rounded-full h-1.5 overflow-hidden",
+                                tray.stack({
+                                    gap: 0,
                                     items: [
-                                        tray.div({
-                                            className: "bg-brand-500 h-1.5 rounded-full transition-all duration-300",
-                                            style: { width: percent + "%" }
+                                        tray.text(title + (statusBadge ? statusBadge : ""), {
+                                            className: "font-semibold text-white text-sm truncate leading-snug"
+                                        }),
+                                        tray.flex({
+                                            direction: "row",
+                                            className: "items-center gap-2 mt-0.5",
+                                            items: [
+                                                tray.badge({
+                                                    text: "Episode " + epNum,
+                                                    intent: "primary-subtle",
+                                                    size: "sm"
+                                                }),
+                                                tray.text(relativeTime, {
+                                                    className: "text-xs text-gray-400"
+                                                })
+                                            ]
                                         })
                                     ]
                                 }),
 
-                                // Action Buttons row
+                                // Progress bar + Timestamps
+                                tray.stack({
+                                    gap: 1,
+                                    className: "w-full my-1",
+                                    items: [
+                                        tray.div({
+                                            className: "w-full bg-gray-800 rounded-full h-1.5 overflow-hidden",
+                                            items: [
+                                                tray.div({
+                                                    className: (percent > 85 ? "bg-emerald-500" : "bg-indigo-500") + " h-1.5 rounded-full transition-all",
+                                                    style: { width: percent + "%" }
+                                                })
+                                            ]
+                                        }),
+                                        tray.flex({
+                                            direction: "row",
+                                            className: "justify-between text-xs text-gray-400 font-mono",
+                                            items: [
+                                                tray.text(formatDuration(currTime), { className: "text-xs text-gray-300 font-mono" }),
+                                                tray.text(percent + "% (" + formatDuration(duration) + ")", { className: "text-xs text-gray-400 font-mono" })
+                                            ]
+                                        })
+                                    ]
+                                }),
+
+                                        // Action Buttons Row: Mark Ep Watched, Mark Season Watched, Go to Anime, Remove
                                 tray.flex({
                                     direction: "row",
-                                    className: "items-center justify-end gap-2 pt-1",
+                                    className: "gap-1.5 flex-wrap items-center pt-1",
                                     items: [
-                                        // "Mark as Watched" button
                                         tray.button({
-                                            label: "Mark Watched",
+                                            label: "Mark Ep " + epNum + " Watched",
                                             size: "xs",
-                                            intent: "primary",
-                                            onClick: ctx.eventHandler("history-mark-watched-" + mId + "-" + epNum, function() {
+                                            intent: "primary-subtle",
+                                            onClick: ctx.eventHandler("history-mark-ep-" + mId + "-" + epNum, function() {
                                                 try {
-                                                    $anilist.updateEntryProgress(mId, epNum, meta.totalEpisodes || null);
-                                                    ctx.toast.success("Marked Episode " + epNum + " as watched on AniList!");
+                                                    $anilist.updateEntryProgress(mId, epNum, undefined);
+                                                    $anilist.refreshAnimeCollection();
+                                                    try {
+                                                        if (ctx.continuity && typeof ctx.continuity.deleteWatchHistoryItem === "function") {
+                                                            ctx.continuity.deleteWatchHistoryItem(mId);
+                                                        }
+                                                    } catch (e) {}
+                                                    ctx.toast.success("Marked Episode " + epNum + " as watched!");
                                                     tray.update();
                                                 } catch (err) {
                                                     var msg = (err && err.message) ? err.message : String(err);
-                                                    ctx.toast.error("Failed to mark as watched: " + msg);
+                                                    ctx.toast.error("Failed to mark episode as watched: " + msg);
                                                 }
                                             })
                                         }),
-
-                                        // "Go to Anime" page button
                                         tray.button({
+                                            label: "Mark Season Watched",
+                                            size: "xs",
+                                            intent: "gray-subtle",
+                                            onClick: ctx.eventHandler("history-mark-season-" + mId, function() {
+                                                try {
+                                                    var totalEps = meta.episodes || epNum;
+                                                    $anilist.updateEntryProgress(mId, totalEps, totalEps);
+                                                    $anilist.refreshAnimeCollection();
+                                                    try {
+                                                        if (ctx.continuity && typeof ctx.continuity.deleteWatchHistoryItem === "function") {
+                                                            ctx.continuity.deleteWatchHistoryItem(mId);
+                                                        }
+                                                    } catch (e) {}
+                                                    ctx.toast.success("Marked entire season of " + title + " as watched (" + totalEps + " eps)!");
+                                                    tray.update();
+                                                } catch (err) {
+                                                    var msg = (err && err.message) ? err.message : String(err);
+                                                    ctx.toast.error("Failed to mark season as watched: " + msg);
+                                                }
+                                            })
+                                        }),
+tray.button({
                                             label: "Go to Anime",
                                             size: "xs",
                                             intent: "gray-subtle",
-                                            onClick: ctx.eventHandler("history-open-anime-" + mId, function() {
-                                                try {
-                                                    tray.close();
-                                                    if (ctx.screen && typeof ctx.screen.navigateTo === "function") {
-                                                        ctx.screen.navigateTo("/entry", { id: String(mId) });
-                                                    }
-                                                } catch (e) {
-                                                    console.log("[Watch-History-Manager] Navigation error: " + e);
+                                            onClick: ctx.eventHandler("history-goto-" + mId, function() {
+                                                tray.close();
+                                                if (ctx.screen && typeof ctx.screen.navigateTo === "function") {
+                                                    ctx.screen.navigateTo("/entry", { id: "" + mId });
                                                 }
                                             })
                                         }),
-
-                                        // "Remove" item from history
                                         tray.button({
                                             label: "Remove",
                                             size: "xs",
@@ -470,14 +829,14 @@ function init() {
                                                 try {
                                                     if (ctx.continuity && typeof ctx.continuity.deleteWatchHistoryItem === "function") {
                                                         ctx.continuity.deleteWatchHistoryItem(mId);
-                                                    } else if (typeof $continuity !== "undefined" && typeof $continuity.deleteWatchHistoryItem === "function") {
-                                                        $continuity.deleteWatchHistoryItem(mId);
+                                                        ctx.toast.info("Removed from watch history");
+                                                        tray.update();
+                                                    } else {
+                                                        ctx.toast.error("Continuity API unavailable");
                                                     }
-                                                    ctx.toast.info("Removed from watch history.");
-                                                    tray.update();
                                                 } catch (err) {
                                                     var msg = (err && err.message) ? err.message : String(err);
-                                                    ctx.toast.error("Failed to remove item: " + msg);
+                                                    ctx.toast.error("Failed to remove: " + msg);
                                                 }
                                             })
                                         })
@@ -486,14 +845,28 @@ function init() {
                             ]
                         })
                     );
-                })(items[idx]);
+
+itemCards.push(
+                        tray.div({
+                            className: "p-3 bg-gray-900/90 border border-gray-800 rounded-lg shadow-sm hover:border-gray-700 transition-colors",
+                            items: [
+                                tray.flex({
+                                    direction: "row",
+                                    className: "gap-3 items-center w-full",
+                                    items: cardComponents
+                                })
+                            ]
+                        })
+                    );
+                })(displayItems[idx]);
             }
 
-            return tray.stack({
-                gap: 1,
-                className: "p-4 space-y-1 overflow-y-auto max-h-[88vh]",
+            tray.stack({
+                gap: 3,
+                className: "p-1 pb-6",
                 items: itemCards
             });
         });
     });
 }
+

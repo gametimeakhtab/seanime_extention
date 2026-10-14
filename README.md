@@ -7,27 +7,34 @@
 
 ---
 
-## 🌟 Features (Khoobiyan)
+## 🌟 Features (Nayi Khoobiyan)
 
-1. **Chronological Watching History (In Order Watching)**:
-   - Topbar / Sidebar icon pe click karke **Watch History Drawer** open hota hai.
-   - History items strictly **chronological order** (sabse latest watched episode sabse upar) mein display hote hain.
-   - Har history item mein dikhta hai:
-     - Anime Name (AniList library metadata se mapped)
-     - Episode Number (e.g., `EP 4`)
-     - Playback Progress bar aur exact time (e.g., `18:42 / 24:10 (77%)`)
-     - Relative time (e.g., `5m ago`, `2h ago`, `Yesterday`)
-   - **Quick Actions per item**:
-     - `Mark Watched`: AniList pe episode watched mark karega aur toast dikhayega.
-     - `Go to Anime`: Seedha us anime ke page par navigate karega.
-     - `Remove`: Watch history se item remove karega.
-   - **Auto Refresh**: Drawer open hote hi history automatically refresh ho jaati hai.
+### 1. 🎬 Mark Season as Watched (Anime):
+- **3-Dot Dropdown Menu (Anime Page)**:
+  - Download button ke bagal mein **3-dot dropdown menu** par:
+    - **"Mark Season as Watched"**: Ek click mein poore season ke saare episodes watched mark ho jaate hain!
+    - **"Mark Next Episode as Watched"**: Agla episode turant watched mark karega.
+- **Anime Page Button**: Direct **"Mark Ep Watched"** button.
+- **Right-Click Context Menu**:
+  - Episode cards: **"Mark Episode as Watched"**.
+  - Anime cards: **"Mark Next Episode as Watched"** aur **"Mark Season as Watched"**.
 
-2. **Right-Click Context Menu ("Mark as Watched")**:
-   - **Episode Cards**: Kisi bhi episode card par right-click karo -> **"Mark Episode as Watched"** option milega. Click karte hi AniList progress update ho jayegi!
-   - **Anime / Media Cards**: Anime card par right-click karne par do options:
-     - **"Mark Next Episode as Watched"**: Current progress ko +1 karke update karega.
-     - **"Mark Anime as Completed"**: Poore anime ko completed mark karega.
+### 2. 📖 Manga Support (Mark Read & Whole Season Read):
+- **3-Dot Dropdown Menu (Manga Page)**:
+  - **"Mark Manga / Season as Completed"**: Poore manga / season ke chapters completed mark karega!
+  - **"Mark Next Chapter as Read"**: Agla chapter read mark karega.
+- **Manga Page Button**: Quick **"Mark Chapter Read"** button.
+- **Media Card Context Menu for Manga**:
+  - Right-click karke **"Mark Next Chapter as Read"** aur **"Mark Manga as Completed"**.
+
+### 3. ⏱️ Strict Chronological Watch Order:
+- Watch history items strictly **exact watch time (Latest watched first)** sort hote hain. Jo anime sabse latest dekha gaya hai, woh hamesha sabse upar rahega!
+
+### 4. 🧹 Watched & Rewatching Filter Bug Fix:
+- AniList par already watched / completed items ab active list ko clutter nahi karenge.
+- **Rewatching Support**: Rewatch cycle ke unwatched episodes hi active list mein aayenge.
+- **Active Only vs All Toggle**: Header mein `[Active]` aur `[All]` toggle diya gaya hai.
+- **Drawer Buttons**: `Mark Ep [N] Watched`, `Mark Season Watched`, `Go to Anime`, `Remove`.
 
 ---
 
