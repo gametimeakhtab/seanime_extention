@@ -74,20 +74,37 @@ function init() {
                 if (!collection) {
                     collection = $store.get("latestAnimeCollection");
                 }
-                if (collection && collection.lists) {
-                    for (var i = 0; i < collection.lists.length; i++) {
-                        var list = collection.lists[i];
-                        if (list && list.entries) {
-                            for (var j = 0; j < list.entries.length; j++) {
-                                var entry = list.entries[j];
-                                if (entry && entry.media && entry.media.id === mediaId) {
-                                    var title = (entry.media.title && (entry.media.title.userPreferred || entry.media.title.romaji || entry.media.title.english)) || "";
-                                    var cover = (entry.media.coverImage && (entry.media.coverImage.large || entry.media.coverImage.medium)) || "";
-                                    return { title: title, cover: cover, totalEpisodes: entry.media.episodes || 0 };
-                                }
+                var lists = (collection && collection.MediaListCollection && collection.MediaListCollection.lists) || (collection && collection.lists) || [];
+                for (var i = 0; i < lists.length; i++) {
+                    var list = lists[i];
+                    if (list && list.entries) {
+                        for (var j = 0; j < list.entries.length; j++) {
+                            var entry = list.entries[j];
+                            if (entry && entry.media && entry.media.id === mediaId) {
+                                var m = entry.media;
+                                var rawTitle = (m.title && (m.title.userPreferred || m.title.romaji || m.title.english)) || "";
+                                var title = rawTitle ? String(rawTitle) : "";
+                                var rawCover = (m.coverImage && (m.coverImage.large || m.coverImage.medium)) || "";
+                                var cover = rawCover ? String(rawCover) : "";
+                                var totalEps = (m.episodes && !isNaN(m.episodes)) ? Number(m.episodes) : 0;
+                                return { title: title, cover: cover, totalEpisodes: totalEps };
                             }
                         }
                     }
+                }
+                // Fallback: direct AniList anime query if not present in collection
+                if (typeof $anilist !== "undefined" && typeof $anilist.getAnime === "function") {
+                    try {
+                        var anime = $anilist.getAnime(mediaId);
+                        if (anime) {
+                            var rawDirectTitle = (anime.title && (anime.title.userPreferred || anime.title.romaji || anime.title.english)) || "";
+                            var directTitle = rawDirectTitle ? String(rawDirectTitle) : "";
+                            var rawDirectCover = (anime.coverImage && (anime.coverImage.large || anime.coverImage.medium)) || "";
+                            var directCover = rawDirectCover ? String(rawDirectCover) : "";
+                            var directTotalEps = (anime.episodes && !isNaN(anime.episodes)) ? Number(anime.episodes) : 0;
+                            return { title: directTitle, cover: directCover, totalEpisodes: directTotalEps };
+                        }
+                    } catch (_) {}
                 }
             } catch (_) {}
             return { title: "", cover: "", totalEpisodes: 0 };
@@ -310,56 +327,89 @@ function init() {
                         }
                     }
 
-                    // Build left items (cover thumbnail + details)
-                    var infoItems = [];
+                    // Cover thumbnail
+                    var coverItem = null;
                     if (meta.cover) {
-                        infoItems.push(tray.img({
-                            src: meta.cover,
-                            alt: displayTitle,
-                            className: "w-9 h-12 object-cover rounded shadow flex-none"
+                        coverItem = tray.div([], {
+                            style: {
+                                width: "44px",
+                                height: "62px",
+                                minWidth: "44px",
+                                backgroundImage: "url(" + meta.cover + ")",
+                                backgroundSize: "cover",
+                                backgroundPosition: "center",
+                                borderRadius: "6px",
+                                flexShrink: "0"
+                            }
+                        });
+                    }
+
+                    // Title and relative timestamp row
+                    var titleRowItems = [
+                        tray.div([
+                            tray.text(String(displayTitle), {
+                                className: "text-sm font-semibold text-white truncate break-normal leading-tight"
+                            })
+                        ], {
+                            className: "min-w-0 flex-1 overflow-hidden"
+                        })
+                    ];
+                    if (relativeTime) {
+                        titleRowItems.push(tray.span(String(relativeTime), {
+                            className: "text-xs text-gray-400 whitespace-nowrap flex-none shrink-0"
                         }));
                     }
-                    infoItems.push(tray.stack({
-                        gap: 0,
-                        className: "flex-1 min-w-0",
+                    var titleAndDateRow = tray.flex({
+                        direction: "row",
+                        className: "items-center justify-between gap-2 w-full",
+                        items: titleRowItems
+                    });
+
+                    // Episode badge and time info row
+                    var epAndProgressRow = tray.flex({
+                        direction: "row",
+                        gap: 2,
+                        className: "items-center mt-1 flex-wrap",
                         items: [
-                            tray.text(displayTitle, {
-                                className: "text-sm font-semibold text-white truncate"
+                            tray.badge(String("EP " + epNum), {
+                                intent: "primary",
+                                size: "sm"
                             }),
-                            tray.flex({
-                                direction: "row",
-                                className: "items-center gap-2 mt-0.5",
-                                items: [
-                                    tray.text("EP " + epNum, {
-                                        className: "px-1.5 py-0.5 rounded text-[11px] font-semibold bg-brand-500/20 text-brand-400 border border-brand-500/30"
-                                    }),
-                                    tray.text(timeStr + " (" + percent + "%)", {
-                                        className: "text-xs text-gray-400"
-                                    })
-                                ]
+                            tray.span(String(timeStr + " (" + percent + "%)"), {
+                                className: "text-xs text-gray-400 whitespace-nowrap"
                             })
                         ]
-                    }));
+                    });
+
+                    // Details column (Title row + Episode badge row)
+                    var detailsCol = tray.stack({
+                        gap: 1,
+                        className: "min-w-0 flex-1 justify-center",
+                        items: [
+                            titleAndDateRow,
+                            epAndProgressRow
+                        ]
+                    });
+
+                    // Top row: [Cover, DetailsCol]
+                    var topRowItems = [];
+                    if (coverItem) {
+                        topRowItems.push(coverItem);
+                    }
+                    topRowItems.push(detailsCol);
+
+                    var topRow = tray.flex({
+                        direction: "row",
+                        gap: 3,
+                        className: "items-center w-full",
+                        items: topRowItems
+                    });
 
                     itemCards.push(
                         tray.div({
-                            className: "p-3 rounded-xl bg-gray-900/60 border border-gray-800/90 hover:border-gray-700/80 transition-all space-y-2 mb-3 shadow-sm",
+                            className: "p-3 rounded-xl bg-gray-900/60 border border-gray-800/90 hover:border-gray-700/80 transition-all space-y-2.5 mb-3 shadow-sm",
                             items: [
-                                // Top row: Title, Cover & relative time
-                                tray.flex({
-                                    direction: "row",
-                                    className: "items-start justify-between gap-2",
-                                    items: [
-                                        tray.flex({
-                                            direction: "row",
-                                            className: "items-center gap-3 min-w-0 flex-1",
-                                            items: infoItems
-                                        }),
-                                        tray.text(relativeTime, {
-                                            className: "text-xs text-gray-400 flex-none"
-                                        })
-                                    ]
-                                }),
+                                topRow,
 
                                 // Progress bar
                                 tray.div({
