@@ -165,9 +165,10 @@ function init() {
         // 2. WATCHING HISTORY IN CHRONOLOGICAL ORDER (Tray Drawer)
         // =========================================================================
 
-        var tray = ctx.tray.newTray({
-            tooltipText: "Watching History (Chronological)",
-            isDrawer: true,
+        var tray = ctx.newTray({
+            tooltipText: "Watch History",
+            iconUrl: "https://raw.githubusercontent.com/gametimeakhtab/seanime_extention/main/icon.png",
+            withContent: true,
             width: "440px"
         });
 
@@ -208,30 +209,26 @@ function init() {
 
             // If empty, display friendly state
             if (items.length === 0) {
-                return [
-                    tray.stack({
-                        gap: 4,
-                        className: "p-6 text-center space-y-4",
-                        items: [
-                            tray.text({
-                                text: "Watching History",
-                                className: "text-lg font-bold text-white tracking-wide"
-                            }),
-                            tray.text({
-                                text: "No watch history recorded yet.\nStart watching an episode and your chronological history will appear here in real time!",
-                                className: "text-sm text-gray-400 whitespace-pre-line leading-relaxed"
-                            }),
-                            tray.button({
-                                label: "Refresh",
-                                size: "sm",
-                                intent: "primary",
-                                onClick: ctx.eventHandler("refresh-empty-history", function() {
-                                    tray.update();
-                                })
+                return tray.stack({
+                    gap: 4,
+                    className: "p-6 text-center space-y-4",
+                    items: [
+                        tray.text("Watching History", {
+                            className: "text-lg font-bold text-white tracking-wide"
+                        }),
+                        tray.text("No watch history recorded yet.\nStart watching an episode and your chronological history will appear here in real time!", {
+                            className: "text-sm text-gray-400 whitespace-pre-line leading-relaxed"
+                        }),
+                        tray.button({
+                            label: "Refresh",
+                            size: "sm",
+                            intent: "primary",
+                            onClick: ctx.eventHandler("refresh-empty-history", function() {
+                                tray.update();
                             })
-                        ]
-                    })
-                ];
+                        })
+                    ]
+                });
             }
 
             // Build history card components
@@ -246,12 +243,10 @@ function init() {
                         tray.stack({
                             gap: 0,
                             items: [
-                                tray.text({
-                                    text: "Watching History (" + items.length + ")",
+                                tray.text("Watching History (" + items.length + ")", {
                                     className: "text-base font-bold text-white tracking-wide"
                                 }),
-                                tray.text({
-                                    text: "In chronological order (Latest watched first)",
+                                tray.text("In chronological order (Latest watched first)", {
                                     className: "text-xs text-gray-400"
                                 })
                             ]
@@ -304,20 +299,17 @@ function init() {
                                             gap: 0,
                                             className: "flex-1 min-w-0",
                                             items: [
-                                                tray.text({
-                                                    text: displayTitle,
+                                                tray.text(displayTitle, {
                                                     className: "text-sm font-semibold text-white truncate"
                                                 }),
                                                 tray.flex({
                                                     direction: "row",
                                                     className: "items-center gap-2 mt-0.5",
                                                     items: [
-                                                        tray.badge({
-                                                            text: "EP " + epNum,
-                                                            intent: "primary"
+                                                        tray.text("EP " + epNum, {
+                                                            className: "px-1.5 py-0.5 rounded text-[11px] font-semibold bg-brand-500/20 text-brand-400 border border-brand-500/30"
                                                         }),
-                                                        tray.text({
-                                                            text: timeStr + " (" + percent + "%)",
+                                                        tray.text(timeStr + " (" + percent + "%)", {
                                                             className: "text-xs text-gray-400"
                                                         })
                                                     ]
@@ -370,7 +362,8 @@ function init() {
                                             size: "xs",
                                             intent: "gray-subtle",
                                             onClick: ctx.eventHandler("history-open-anime-" + mId, function() {
-                                                ctx.screen.navigateTo("/entry?id=" + mId);
+                                                ctx.screen.navigateTo("/entry", { id: String(mId) });
+                                                    tray.close();
                                             })
                                         }),
 
@@ -398,13 +391,11 @@ function init() {
                 })(items[idx]);
             }
 
-            return [
-                tray.stack({
-                    gap: 1,
-                    className: "p-4 space-y-1 overflow-y-auto max-h-[88vh]",
-                    items: itemCards
-                })
-            ];
+            return tray.stack({
+                gap: 1,
+                className: "p-4 space-y-1 overflow-y-auto max-h-[88vh]",
+                items: itemCards
+            });
         });
     });
 }
