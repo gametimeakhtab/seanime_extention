@@ -1,40 +1,48 @@
-<div align="center">
+ <div align="center">
   <img src="icon.png" width="128" height="128" alt="Watch History Manager Logo" />
   <h1>Watch History & Quick Watched</h1>
   <p><strong>A Seanime Extension by <a href="https://github.com/gametimeakhtab">gametimeakhtab</a></strong></p>
-  <p>Chronological Watch History drawer & right-click "Mark as Watched" context menu actions for Seanime.</p>
+  <p>A chronological watch history drawer with convenient right-click context menu actions for marking anime episodes as watched and manga chapters as read.</p>
 </div>
 
 ---
 
-## 🌟 Features (Nayi Khoobiyan)
+## 🌟 Features
 
-### 1. 🎬 Mark Season as Watched (Anime):
-- **3-Dot Dropdown Menu (Anime Page)**:
-  - Download button ke bagal mein **3-dot dropdown menu** par:
-    - **"Mark Season as Watched"**: Ek click mein poore season ke saare episodes watched mark ho jaate hain!
-    - **"Mark Next Episode as Watched"**: Agla episode turant watched mark karega.
-- **Anime Page Button**: Direct **"Mark Ep Watched"** button.
-- **Right-Click Context Menu**:
-  - Episode cards: **"Mark Episode as Watched"**.
-  - Anime cards: **"Mark Next Episode as Watched"** aur **"Mark Season as Watched"**.
+### 1. 🎬 Mark Anime Seasons as Watched
 
-### 2. 📖 Manga Support (Mark Read & Whole Season Read):
-- **3-Dot Dropdown Menu (Manga Page)**:
-  - **"Mark Manga / Season as Completed"**: Poore manga / season ke chapters completed mark karega!
-  - **"Mark Next Chapter as Read"**: Agla chapter read mark karega.
-- **Manga Page Button**: Quick **"Mark Chapter Read"** button.
-- **Media Card Context Menu for Manga**:
-  - Right-click karke **"Mark Next Chapter as Read"** aur **"Mark Manga as Completed"**.
+- **Three-Dot Dropdown Menu (Anime Page):**
+  - **Mark Season as Watched:** Mark all episodes in a season as watched with a single click.
+  - **Mark Next Episode as Watched:** Instantly mark the next episode as watched.
+- **Anime Page Button:** A dedicated **Mark Ep Watched** button for quickly marking episodes as watched.
+- **Right-Click Context Menu:**
+  - **Episode Cards:** Mark individual episodes as watched.
+  - **Anime Cards:** Mark the next episode as watched or mark the entire season as watched.
 
-### 3. ⏱️ Strict Chronological Watch Order:
-- Watch history items strictly **exact watch time (Latest watched first)** sort hote hain. Jo anime sabse latest dekha gaya hai, woh hamesha sabse upar rahega!
+### 2. 📖 Manga Support (Mark as Read & Complete Seasons)
 
-### 4. 🧹 Watched & Rewatching Filter Bug Fix:
-- AniList par already watched / completed items ab active list ko clutter nahi karenge.
-- **Rewatching Support**: Rewatch cycle ke unwatched episodes hi active list mein aayenge.
-- **Active Only vs All Toggle**: Header mein `[Active]` aur `[All]` toggle diya gaya hai.
-- **Drawer Buttons**: `Mark Ep [N] Watched`, `Mark Season Watched`, `Go to Anime`, `Remove`.
+- **Three-Dot Dropdown Menu (Manga Page):**
+  - **Mark Manga / Season as Completed:** Mark all chapters in a manga or season as completed.
+  - **Mark Next Chapter as Read:** Instantly mark the next chapter as read.
+- **Manga Page Button:** A dedicated **Mark Chapter Read** button for quick access.
+- **Manga Card Context Menu:**
+  - Right-click a manga card to access **Mark Next Chapter as Read** and **Mark Manga as Completed**.
+
+### 3. ⏱️ Strict Chronological Watch History
+
+- Watch history entries are sorted by their exact watch timestamps, with the **most recently watched items displayed first**.
+- The latest watched anime always appears at the top of the history list.
+
+### 4. 🧹 Watched Items & Rewatching Filter Fix
+
+- **Completed Items:** Anime already marked as watched or completed on AniList will no longer clutter the active list.
+- **Rewatching Support:** Only unwatched episodes from the current rewatch cycle appear in the active list.
+- **Active Only vs. All Toggle:** Switch between **Active** and **All** views directly from the drawer header.
+- **Drawer Actions:**
+  - `Mark Ep [N] Watched`
+  - `Mark Season Watched`
+  - `Go to Anime`
+  - `Remove`
 
 ---
 
@@ -42,42 +50,52 @@
 
 ```text
 extensions/watch-history-manager/
-├── manifest.json                  # Extension metadata & permissions
+├── manifest.json                  # Extension metadata and permissions
 ├── index.js                       # Extension source code
 ├── watch-history-manager.json     # Bundled single-file extension
-├── build.js                       # Auto-builder & deploy script
-└── README.md                      # Documentation & Guide
+├── build.js                       # Automated build and deployment script
+└── README.md                      # Documentation and usage guide
 ```
 
 ---
 
 ## 🚀 Installation & Usage
 
-Extension already active directory mein install ho chuka hai:
-`C:\Users\User\AppData\Roaming\Seanime\extensions\watch-history-manager.json`
+The extension has already been installed in the following directory:
 
-### Agar Seanime already chal raha hai:
-1. Seanime open karein.
-2. **Settings -> Extensions** mein jayein.
-3. **"Reload Extensions"** button dabayein.
-4. **"Watch History & Quick Watched"** ko Enable karein aur permissions allow karein (`anilist`, `storage`).
+```text
+C:\Users\User\AppData\Roaming\Seanime\extensions\watch-history-manager.json
+```
 
-### Right Click Menu Test:
-- Library ya kisi anime page par jao.
-- Kisi bhi **Episode card** par right-click karo: **"Mark Episode as Watched"** option dikhega.
-- Kisi bhi **Anime card** par right-click karo: **"Mark Next Episode as Watched"** aur **"Mark Anime as Completed"** options dikhenge.
+### If Seanime Is Already Running
 
-### Watching History Tray Test:
-- Topbar ya Sidebar mein **Watch History** tray icon par click karein.
-- Ek sleek drawer khulega jisme aapki watch history latest-to-oldest order mein list hogi.
-- Wahin se direct **Mark Watched** ya **Go to Anime** kar sakte hain.
+1. Open Seanime.
+2. Navigate to **Settings → Extensions**.
+3. Click **Reload Extensions**.
+4. Enable **Watch History & Quick Watched**.
+5. Grant the required permissions: `anilist` and `storage`.
+
+### Testing the Right-Click Context Menu
+
+1. Open your library or navigate to an anime page.
+2. Right-click any **episode card** and look for the **Mark Episode as Watched** option.
+3. Right-click any **anime card** to access options such as **Mark Next Episode as Watched** and **Mark Anime as Completed**.
+
+### Testing the Watch History Drawer
+
+1. Click the **Watch History** tray icon in the top bar or sidebar.
+2. A sleek drawer will open, displaying your watch history in chronological order, from newest to oldest.
+3. Use the available actions to mark episodes as watched or navigate directly to an anime page.
 
 ---
 
-## 🛠 Rebuilding
+## 🛠️ Rebuilding the Extension
 
-Agar aap code (`index.js` ya `manifest.json`) mein koi change karte hain:
+Whenever you modify the extension's source files, such as `index.js` or `manifest.json`, run the following command from your project root:
+
 ```bash
 node "extensions/watch-history-manager/build.js"
 ```
-Yeh command automatically file bundle karegi aur Seanime ke extensions folder mein update kar degi.
+
+This command automatically bundles the extension and deploys the updated file to Seanime's extensions directory.
+
