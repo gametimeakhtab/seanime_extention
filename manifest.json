@@ -2,7 +2,7 @@
   "$schema": "https://seanime.app/schemas/extension.json",
   "id": "watch-history-manager",
   "name": "Watch History & Quick Watched",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "plugin",
   "language": "javascript",
   "description": "Chronological Watch History drawer with quick actions, and right-click 'Mark as Watched' context menu actions for episodes and anime.",
