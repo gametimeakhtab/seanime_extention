@@ -10,7 +10,7 @@
   "icon": "https://raw.githubusercontent.com/gametimeakhtab/seanime_extention/main/icon.png",
   "website": "https://github.com/gametimeakhtab/seanime_extention",
   "manifestURI": "https://raw.githubusercontent.com/gametimeakhtab/seanime_extention/main/manifest.json",
-  "payload": "index.js",
+  "payloadURI": "https://raw.githubusercontent.com/gametimeakhtab/seanime_extention/main/index.js",
   "lang": "en",
   "plugin": {
     "version": "1",
@@ -22,3 +22,4 @@
     }
   }
 }
+

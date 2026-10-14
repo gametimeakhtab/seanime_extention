@@ -3,13 +3,18 @@ const path = require('path');
 
 const dir = __dirname;
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
-const payload = fs.readFileSync(path.join(dir, 'index.js'), 'utf8');
+let payload = fs.readFileSync(path.join(dir, 'index.js'), 'utf8');
+
+if (payload.charCodeAt(0) === 0xFEFF) {
+  payload = payload.slice(1);
+}
 
 const extension = {
   id: manifest.id,
   name: manifest.name,
   version: manifest.version,
   manifestURI: manifest.manifestURI || "",
+  payloadURI: manifest.payloadURI || "",
   language: manifest.language,
   type: manifest.type,
   description: manifest.description,
@@ -39,3 +44,4 @@ if (appData) {
     console.log('Installed directly to Seanime active extensions:', installedPath);
   }
 }
+

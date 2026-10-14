@@ -1,4 +1,4 @@
-﻿/// <reference path="../../internal/extension_repo/goja_plugin_types/plugin.d.ts" />
+/// <reference path="../../internal/extension_repo/goja_plugin_types/plugin.d.ts" />
 /// <reference path="../../internal/extension_repo/goja_plugin_types/app.d.ts" />
 /// <reference path="../../internal/extension_repo/goja_plugin_types/core.d.ts" />
 
