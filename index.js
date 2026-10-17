@@ -81,7 +81,9 @@ function init() {
     $app.onGetAnimeCollection(function(e) {
         if (e.animeCollection) {
             $store.set("latestAnimeCollection", $clone(e.animeCollection));
-            indexAnimeCollection(e.animeCollection);
+            if (typeof indexAnimeCollection === "function") {
+                try { indexAnimeCollection(e.animeCollection); } catch (_) {}
+            }
         }
         e.next();
     });
@@ -90,7 +92,9 @@ function init() {
     $app.onGetMangaCollection(function(e) {
         if (e.mangaCollection) {
             $store.set("latestMangaCollection", $clone(e.mangaCollection));
-            indexMangaCollection(e.mangaCollection);
+            if (typeof indexMangaCollection === "function") {
+                try { indexMangaCollection(e.mangaCollection); } catch (_) {}
+            }
         }
         e.next();
     });
@@ -103,17 +107,21 @@ function init() {
             var m = e.anime;
             var title = (m.title && (m.title.userPreferred || m.title.romaji || m.title.english)) || ("Anime #" + m.id);
             var coverRaw = (m.coverImage && (m.coverImage.large || m.coverImage.medium || m.coverImage.extraLarge));
-            var existing = animeMetadataCache[m.id] || {};
-            animeMetadataCache[m.id] = {
-                mediaId: m.id,
-                title: title,
-                cover: coverRaw ? String(coverRaw) : (existing.cover || ""),
-                progress: existing.progress || 0,
-                episodes: m.episodes || existing.episodes || 0,
-                totalEpisodes: m.episodes || existing.totalEpisodes || 0,
-                status: existing.status || null,
-                repeat: existing.repeat || 0
-            };
+            if (typeof animeMetadataCache !== "undefined") {
+                var existing = animeMetadataCache[m.id] || {};
+                animeMetadataCache[m.id] = {
+                    mediaId: m.id,
+                    title: title,
+                    cover: coverRaw ? String(coverRaw) : (existing.cover || ""),
+                    progress: existing.progress || 0,
+                    episodes: m.episodes || existing.episodes || 0,
+                    totalEpisodes: m.episodes || existing.totalEpisodes || 0,
+                    status: existing.status || null,
+                    repeat: existing.repeat || 0,
+                    startDate: m.startDate || null,
+                    seasonYear: m.seasonYear || (m.startDate && m.startDate.year) || 0
+                };
+            }
         }
         e.next();
     });
@@ -127,6 +135,92 @@ function init() {
 
     $ui.register(function(ctx) {
         console.log("[Watch-History-Manager] Registering UI components and context menu actions");
+
+        // Fast in-memory caches to avoid AniList rate limits (Scoped to UI runtime)
+        var animeMetadataCache = {};
+        var mangaMetadataCache = {};
+        var animeCollectionMap = {};
+        var mangaCollectionMap = {};
+        var lastActionTimes = {};
+
+        function indexAnimeCollection(collection) {
+            if (!collection) return;
+            try {
+                var lists = (collection.MediaListCollection && collection.MediaListCollection.lists) || collection.lists || [];
+                for (var i = 0; i < lists.length; i++) {
+                    var list = lists[i];
+                    if (list && list.entries) {
+                        for (var j = 0; j < list.entries.length; j++) {
+                            var entry = list.entries[j];
+                            if (entry && entry.media && entry.media.id) {
+                                var m = entry.media;
+                                var title = String((m.title && (m.title.userPreferred || m.title.romaji || m.title.english)) || ("Anime #" + m.id));
+                                var coverRaw = (m.coverImage && (m.coverImage.large || m.coverImage.medium || m.coverImage.extraLarge));
+                                var meta = {
+                                    mediaId: m.id,
+                                    title: title,
+                                    cover: coverRaw ? String(coverRaw) : "",
+                                    progress: entry.progress || 0,
+                                    episodes: m.episodes || 0,
+                                    totalEpisodes: m.episodes || 0,
+                                    status: entry.status || null,
+                                    repeat: entry.repeat || 0,
+                                    startDate: m.startDate || null,
+                                    seasonYear: m.seasonYear || (m.startDate && m.startDate.year) || 0
+                                };
+                                animeCollectionMap[m.id] = meta;
+                                animeMetadataCache[m.id] = meta;
+                            }
+                        }
+                    }
+                }
+            } catch (_) {}
+        }
+
+        function indexMangaCollection(collection) {
+            if (!collection) return;
+            try {
+                var lists = (collection.MediaListCollection && collection.MediaListCollection.lists) || collection.lists || [];
+                for (var i = 0; i < lists.length; i++) {
+                    var list = lists[i];
+                    if (list && list.entries) {
+                        for (var j = 0; j < list.entries.length; j++) {
+                            var entry = list.entries[j];
+                            if (entry && entry.media && entry.media.id) {
+                                var m = entry.media;
+                                var title = String((m.title && (m.title.userPreferred || m.title.romaji || m.title.english)) || ("Manga #" + m.id));
+                                var coverRaw = (m.coverImage && (m.coverImage.large || m.coverImage.medium || m.coverImage.extraLarge));
+                                var meta = {
+                                    mediaId: m.id,
+                                    title: title,
+                                    cover: coverRaw ? String(coverRaw) : "",
+                                    progress: entry.progress || 0,
+                                    chapters: m.chapters || 0,
+                                    status: entry.status || null,
+                                    repeat: entry.repeat || 0
+                                };
+                                mangaCollectionMap[m.id] = meta;
+                                mangaMetadataCache[m.id] = meta;
+                            }
+                        }
+                    }
+                }
+            } catch (_) {}
+        }
+
+        // Pre-warm caches immediately if latest collections exist in store
+        try {
+            var initCollection = $store.get("latestAnimeCollection");
+            if (initCollection) {
+                indexAnimeCollection(initCollection);
+            }
+        } catch (_) {}
+        try {
+            var initManga = $store.get("latestMangaCollection");
+            if (initManga) {
+                indexMangaCollection(initManga);
+            }
+        } catch (_) {}
 
         // Helper: clean array to prevent null/undefined components
         function cleanItems(arr) {
@@ -238,13 +332,15 @@ function init() {
             if (!mediaId) return { title: "Unknown", cover: "", progress: 0, episodes: 0, totalEpisodes: 0, status: null, repeat: 0 };
 
             // 1. Check in-memory metadata cache (instant, zero network requests)
-            if (animeMetadataCache[mediaId]) {
+            if (typeof animeMetadataCache !== "undefined" && animeMetadataCache[mediaId]) {
                 return animeMetadataCache[mediaId];
             }
 
             // 2. Check collection indexed map
-            if (animeCollectionMap[mediaId]) {
-                animeMetadataCache[mediaId] = animeCollectionMap[mediaId];
+            if (typeof animeCollectionMap !== "undefined" && animeCollectionMap[mediaId]) {
+                if (typeof animeMetadataCache !== "undefined") {
+                    animeMetadataCache[mediaId] = animeCollectionMap[mediaId];
+                }
                 return animeCollectionMap[mediaId];
             }
 
@@ -252,8 +348,10 @@ function init() {
             try {
                 var storedCollection = $store.get("latestAnimeCollection");
                 if (storedCollection) {
-                    indexAnimeCollection(storedCollection);
-                    if (animeCollectionMap[mediaId]) {
+                    if (typeof indexAnimeCollection === "function") {
+                        indexAnimeCollection(storedCollection);
+                    }
+                    if (typeof animeCollectionMap !== "undefined" && animeCollectionMap[mediaId]) {
                         return animeCollectionMap[mediaId];
                     }
                 }
@@ -276,7 +374,9 @@ function init() {
                         status: null,
                         repeat: 0
                     };
-                    animeMetadataCache[mediaId] = metaFromActive;
+                    if (typeof animeMetadataCache !== "undefined") {
+                        animeMetadataCache[mediaId] = metaFromActive;
+                    }
                     return metaFromActive;
                 }
             } catch (_) {}
@@ -300,7 +400,9 @@ function init() {
                                 status: null,
                                 repeat: 0
                             };
-                            animeMetadataCache[mediaId] = netMeta;
+                            if (typeof animeMetadataCache !== "undefined") {
+                                animeMetadataCache[mediaId] = netMeta;
+                            }
                             return netMeta;
                         }
                     }
@@ -309,7 +411,9 @@ function init() {
 
             // Safe fallback without network call (prevents 429 rate limits)
             var fallback = { title: "Anime #" + mediaId, cover: "", progress: 0, episodes: 0, totalEpisodes: 0, status: null, repeat: 0 };
-            animeMetadataCache[mediaId] = fallback;
+            if (typeof animeMetadataCache !== "undefined") {
+                animeMetadataCache[mediaId] = fallback;
+            }
             return fallback;
         }
 
@@ -317,20 +421,24 @@ function init() {
         function getMangaMetadata(mediaId, allowNetwork) {
             if (!mediaId) return { title: "Unknown", cover: "", progress: 0, chapters: 0, status: null, repeat: 0 };
 
-            if (mangaMetadataCache[mediaId]) {
+            if (typeof mangaMetadataCache !== "undefined" && mangaMetadataCache[mediaId]) {
                 return mangaMetadataCache[mediaId];
             }
 
-            if (mangaCollectionMap[mediaId]) {
-                mangaMetadataCache[mediaId] = mangaCollectionMap[mediaId];
+            if (typeof mangaCollectionMap !== "undefined" && mangaCollectionMap[mediaId]) {
+                if (typeof mangaMetadataCache !== "undefined") {
+                    mangaMetadataCache[mediaId] = mangaCollectionMap[mediaId];
+                }
                 return mangaCollectionMap[mediaId];
             }
 
             try {
                 var storedCollection = $store.get("latestMangaCollection");
                 if (storedCollection) {
-                    indexMangaCollection(storedCollection);
-                    if (mangaCollectionMap[mediaId]) {
+                    if (typeof indexMangaCollection === "function") {
+                        indexMangaCollection(storedCollection);
+                    }
+                    if (typeof mangaCollectionMap !== "undefined" && mangaCollectionMap[mediaId]) {
                         return mangaCollectionMap[mediaId];
                     }
                 }
@@ -345,7 +453,9 @@ function init() {
                             var directMangaCover = (manga.coverImage && (manga.coverImage.large || manga.coverImage.medium || manga.coverImage.extraLarge)) || "";
                             var directChapters = manga.chapters || 0;
                             var netMangaMeta = { title: directMangaTitle, cover: directMangaCover, progress: 0, chapters: directChapters, status: null, repeat: 0 };
-                            mangaMetadataCache[mediaId] = netMangaMeta;
+                            if (typeof mangaMetadataCache !== "undefined") {
+                                mangaMetadataCache[mediaId] = netMangaMeta;
+                            }
                             return netMangaMeta;
                         }
                     }
@@ -353,7 +463,9 @@ function init() {
             }
 
             var fallbackManga = { title: "Manga #" + mediaId, cover: "", progress: 0, chapters: 0, status: null, repeat: 0 };
-            mangaMetadataCache[mediaId] = fallbackManga;
+            if (typeof mangaMetadataCache !== "undefined") {
+                mangaMetadataCache[mediaId] = fallbackManga;
+            }
             return fallbackManga;
         }
 
@@ -381,12 +493,14 @@ function init() {
 
         // Helper: Action cooldown/debounce guard to protect AniList rate limit (max 90 req/min)
         function checkActionCooldown(mediaId) {
-            var now = Date.now();
-            var last = lastActionTimes[mediaId] || 0;
+            var now = new Date().getTime();
+            var last = (typeof lastActionTimes !== "undefined" && lastActionTimes[mediaId]) || 0;
             if (now - last < 1200) {
                 return false;
             }
-            lastActionTimes[mediaId] = now;
+            if (typeof lastActionTimes !== "undefined") {
+                lastActionTimes[mediaId] = now;
+            }
             return true;
         }
 
@@ -595,7 +709,7 @@ function init() {
                 if (ctx.continuity && typeof ctx.continuity.deleteWatchHistoryItem === "function") {
                     ctx.continuity.deleteWatchHistoryItem(mediaId);
                 }
-                var meta = (animeCollectionMap && animeCollectionMap[mediaId]) || (animeMetadataCache && animeMetadataCache[mediaId]);
+                var meta = (typeof animeCollectionMap !== "undefined" && animeCollectionMap[mediaId]) || (typeof animeMetadataCache !== "undefined" && animeMetadataCache[mediaId]);
                 var title = (mediaObj && mediaObj.title && (mediaObj.title.userPreferred || mediaObj.title.romaji || mediaObj.title.english)) || (meta && meta.title) || ("Anime #" + mediaId);
                 ctx.toast.success("Removed \"" + title + "\" from watch history");
                 try {
