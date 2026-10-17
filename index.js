@@ -33,7 +33,9 @@ function init() {
                                 episodes: m.episodes || 0,
                                 totalEpisodes: m.episodes || 0,
                                 status: entry.status || null,
-                                repeat: entry.repeat || 0
+                                repeat: entry.repeat || 0,
+                                startDate: m.startDate || null,
+                                seasonYear: m.seasonYear || (m.startDate && m.startDate.year) || 0
                             };
                             animeCollectionMap[m.id] = meta;
                             animeMetadataCache[m.id] = meta;
@@ -704,6 +706,16 @@ function init() {
             var epNum = 1;
             var mediaId = null;
 
+            if (event) {
+                if (typeof event.mediaId === "number") {
+                    mediaId = event.mediaId;
+                } else if (typeof event.animeId === "number") {
+                    mediaId = event.animeId;
+                } else if (event.media && typeof event.media.id === "number") {
+                    mediaId = event.media.id;
+                }
+            }
+
             if (ep) {
                 if (typeof ep.number === "number") {
                     epNum = ep.number;
@@ -711,12 +723,22 @@ function init() {
                     epNum = ep.progressNumber;
                 } else if (typeof ep.episodeNumber === "number") {
                     epNum = ep.episodeNumber;
+                } else if (typeof ep.id === "number") {
+                    epNum = ep.id;
                 }
 
-                if (ep.localFile && ep.localFile.mediaId) {
-                    mediaId = ep.localFile.mediaId;
-                } else if (ep.metadata && ep.metadata.localFile && ep.metadata.localFile.mediaId) {
-                    mediaId = ep.metadata.localFile.mediaId;
+                if (!mediaId) {
+                    if (ep.mediaId) {
+                        mediaId = ep.mediaId;
+                    } else if (ep.animeId) {
+                        mediaId = ep.animeId;
+                    } else if (ep.localFile && ep.localFile.mediaId) {
+                        mediaId = ep.localFile.mediaId;
+                    } else if (ep.metadata && ep.metadata.localFile && ep.metadata.localFile.mediaId) {
+                        mediaId = ep.metadata.localFile.mediaId;
+                    } else if (ep.media && ep.media.id) {
+                        mediaId = ep.media.id;
+                    }
                 }
             }
 
@@ -725,7 +747,7 @@ function init() {
             }
 
             if (!mediaId && typeof window !== "undefined" && window.location) {
-                var match = window.location.search.match(/[?&]id=(\d+)/);
+                var match = window.location.search.match(/[?&](?:id|mediaId)=(\d+)/);
                 if (match) {
                     mediaId = parseInt(match[1], 10);
                 }
@@ -1081,8 +1103,26 @@ function init() {
                 }
             }
 
-            // Sort strictly in descending order of actual watch timestamp (Most recently watched first)
+            // Custom watch order sorting:
+            // 1. Prioritize currently-watching anime (status === "CURRENT")
+            // 2. Sort by release date (latest release date / seasonYear first)
+            // 3. Fall back to actual watch timestamp (Most recently watched first)
             allItems.sort(function(a, b) {
+                var metaA = getAnimeMetadata(a.mediaId);
+                var metaB = getAnimeMetadata(b.mediaId);
+
+                var isCurrentA = (metaA.status === "CURRENT");
+                var isCurrentB = (metaB.status === "CURRENT");
+
+                if (isCurrentA && !isCurrentB) return -1;
+                if (!isCurrentA && isCurrentB) return 1;
+
+                var yearA = (metaA.seasonYear || (metaA.startDate && metaA.startDate.year) || 0);
+                var yearB = (metaB.seasonYear || (metaB.startDate && metaB.startDate.year) || 0);
+                if (yearA !== yearB) {
+                    return yearB - yearA; // Newer release date first
+                }
+
                 var diff = getItemTimestamp(b) - getItemTimestamp(a);
                 if (diff !== 0) return diff;
                 var sA = a.timeUpdated || a.timeAdded || "";
