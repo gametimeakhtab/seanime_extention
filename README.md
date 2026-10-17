@@ -9,17 +9,27 @@
 
 ## 🌟 Features
 
-### 1. 🎬 Mark Anime Seasons as Watched
+### 1. 🎬 Mark Anime Seasons as Watched (Cycle-Safe)
 
+- **Cycle Completion Stop Guard:** When an anime has finished its season/cycle (marked as completed or all episodes watched), the extension **stops** and does not advance or increment past the total episodes. This prevents AniList from erroneously triggering an unwanted rewatch cycle.
 - **Three-Dot Dropdown Menu (Anime Page):**
-  - **Mark Season as Watched:** Mark all episodes in a season as watched with a single click.
-  - **Mark Next Episode as Watched:** Instantly mark the next episode as watched.
+  - **Mark Season as Watched:** Safely mark all episodes in a season as watched and complete the entry.
+  - **Mark Next Episode as Watched:** Instantly mark the next episode as watched (automatically stops at the season maximum).
+  - **Remove from Watch History:** Remove the current anime directly from your local watch history.
+  - **Open Watch History:** Instant one-click shortcut to launch the Watch History drawer directly from the anime entry.
 - **Anime Page Button:** A dedicated **Mark Ep Watched** button for quickly marking episodes as watched.
-- **Right-Click Context Menu:**
-  - **Episode Cards:** Mark individual episodes as watched.
-  - **Anime Cards:** Mark the next episode as watched or mark the entire season as watched.
+- **Right-Click Context Menu (Everywhere):**
+  - **Online Streaming Grid Items:** Right-click episodes in **Online Streaming**, **Media Stream**, **Torrent Stream**, or **Debrid** to access **Mark Episode as Watched**, **Mark Season as Watched**, and **Remove from Watch History**.
+  - **Episode Cards:** Mark individual episodes as watched, mark season as watched, or remove from watch history in local library or torrent lists.
+  - **Anime Cards:** Mark the next episode as watched, mark the season as watched, or remove from watch history from home or library cards.
 
-### 2. 📖 Manga Support (Mark as Read & Complete Seasons)
+### 2. 🛡️ AniList Rate-Limit Protection (Max 90 Req/Min)
+
+- **Zero-Network Tray Rendering:** History items and drawer renders use instant in-memory cached collections (`animeCollectionMap` and `animeMetadataCache`), eliminating repetitive network GraphQL requests that trigger AniList HTTP 429 rate limits.
+- **Action Cooldown & Debounce:** Prevents rapid spam clicking from bursting through the AniList rate limit quota.
+- **Graceful Error Handling:** In the event AniList is temporarily rate-limited, user-friendly toast messages provide clear guidance instead of generic errors.
+
+### 3. 📖 Manga Support (Mark as Read & Complete Seasons)
 
 - **Three-Dot Dropdown Menu (Manga Page):**
   - **Mark Manga / Season as Completed:** Mark all chapters in a manga or season as completed.
@@ -28,12 +38,12 @@
 - **Manga Card Context Menu:**
   - Right-click a manga card to access **Mark Next Chapter as Read** and **Mark Manga as Completed**.
 
-### 3. ⏱️ Strict Chronological Watch History
+### 4. ⏱️ Strict Chronological Watch History
 
 - Watch history entries are sorted by their exact watch timestamps, with the **most recently watched items displayed first**.
 - The latest watched anime always appears at the top of the history list.
 
-### 4. 🧹 Watched Items & Rewatching Filter Fix
+### 5. 🧹 Watched Items & Rewatching Filter Fix
 
 - **Completed Items:** Anime already marked as watched or completed on AniList will no longer clutter the active list.
 - **Rewatching Support:** Only unwatched episodes from the current rewatch cycle appear in the active list.
